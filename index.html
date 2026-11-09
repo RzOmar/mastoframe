@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MastoFrame – Mastodon post to image</title>
+<style>
+  :root {
+    --bg: #f3f5fa; --panel: #ffffff; --text: #14161c; --muted: #6a7080;
+    --line: #dfe3ee; --accent: #6364ff; --accent-text: #ffffff; --danger: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-ui="light"]) {
+      --bg: #0e1016; --panel: #181b24; --text: #eceef5; --muted: #98a0b3;
+      --line: #2a2f3c; --accent: #7c7dff; --accent-text: #0e1016; --danger: #ff7a6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; display: flex; justify-content: center; padding: 32px 16px;
+  }
+  main { width: 100%; max-width: 560px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  p.sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  .row { display: flex; gap: 8px; }
+  input[type=url] {
+    flex: 1; min-width: 0; padding: 12px 14px; font-size: 15px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  }
+  input[type=url]:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button {
+    font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; border-radius: 10px;
+    padding: 12px 18px; border: 1px solid transparent;
+  }
+  .primary { background: var(--accent); color: var(--accent-text); }
+  .primary:disabled { opacity: .6; cursor: wait; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin: 16px 0 12px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .bgrow { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .lbl { font-size: 14px; color: var(--muted); }
+  #swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sw { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line); }
+  .sw[aria-pressed=true] { box-shadow: 0 0 0 2px var(--accent); }
+  .custom input { width: 32px; height: 32px; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; }
+  #count { margin: -6px 0 18px; font-size: 14px; color: var(--muted); display: flex; align-items: baseline; gap: 6px; }
+  #count[hidden] { display: none; }
+  .num { display: inline-block; font-size: 22px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; transform-origin: left center; }
+  .plus { font-weight: 700; color: var(--accent); opacity: 0; }
+  #count.pop .num { animation: numpop .8s cubic-bezier(.2,.9,.3,1.3); }
+  #count.pop .plus { animation: plusfly 1s ease-out; }
+  @keyframes numpop { 0% { transform: scale(1); } 30% { transform: scale(1.9); } 100% { transform: scale(1); } }
+  @keyframes plusfly { 0% { opacity: 0; transform: translateY(10px) scale(.6); } 25% { opacity: 1; transform: translateY(-4px) scale(1.2); } 100% { opacity: 0; transform: translateY(-22px) scale(1); } }
+  @media (prefers-reduced-motion: reduce) { #count.pop .num, #count.pop .plus { animation: none; } }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .seg button { background: transparent; color: var(--muted); border-radius: 0; padding: 8px 16px; font-size: 14px; }
+  .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-text); }
+  #msg { min-height: 20px; font-size: 14px; color: var(--danger); margin: 4px 0 0; }
+  #stage { margin-top: 8px; display: none; }
+  canvas { width: 100%; height: auto; aspect-ratio: 1 / 1; border-radius: 12px; display: block; border: 1px solid var(--line); }
+  #download { width: 100%; margin-top: 12px; background: var(--panel); color: var(--text); border-color: var(--line); }
+  #download:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>MastoFrame</h1>
+  <p class="sub">Paste a Mastodon post link, get a square image you can download.</p>
+
+  <p id="count" hidden><span class="num" id="cnum">0</span><span id="clabel">images created worldwide</span><span class="plus" id="plus">+1</span></p>
+
+  <div class="row">
+    <input id="url" type="url" placeholder="https://mastodon.social/@user/1123456789" aria-label="Mastodon post URL" autocomplete="off">
+    <button id="go" class="primary">Create</button>
+  </div>
+  <p id="msg" role="status"></p>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Image theme">
+      <button id="t-dark" aria-pressed="true">Dark</button>
+      <button id="t-light" aria-pressed="false">Light</button>
+    </div>
+    <label class="check"><input type="checkbox" id="stats" checked> Show replies, quotes, boosts, likes</label>
+  </div>
+  <div class="bgrow">
+    <span class="lbl">Background</span>
+    <div id="swatches" role="group" aria-label="Background colour"></div>
+    <label class="custom" title="Pick any colour">
+      <input type="color" id="custom" value="#4a86c9" aria-label="Custom background colour">
+    </label>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv" width="1080" height="1080"></canvas>
+    <button id="download">Download PNG</button>
+  </div>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  const S = 1080;
+  const FONT = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+  const MASTODON_PATH = "M23.268 5.313c-.35-2.578-2.617-4.61-5.304-5.004C17.51.242 15.792 0 11.813 0h-.03c-3.98 0-4.835.242-5.288.309C3.882.692 1.496 2.518.917 5.127.64 6.412.61 7.837.661 9.143c.074 1.874.088 3.745.26 5.611.118 1.24.325 2.47.62 3.68.55 2.237 2.777 4.098 4.96 4.857 2.336.792 4.849.923 7.256.38.265-.061.527-.132.786-.213.585-.184 1.27-.39 1.774-.753a.057.057 0 0 0 .023-.043v-1.809a.052.052 0 0 0-.02-.041.053.053 0 0 0-.046-.01 20.282 20.282 0 0 1-4.709.545c-2.73 0-3.463-1.284-3.674-1.818a5.593 5.593 0 0 1-.319-1.433.053.053 0 0 1 .066-.054c1.517.363 3.072.546 4.632.546.376 0 .75 0 1.125-.01 1.57-.044 3.224-.124 4.768-.422.038-.008.077-.015.11-.024 2.435-.464 4.753-1.92 4.989-5.604.008-.145.03-1.52.03-1.67.002-.512.167-3.63-.024-5.545zm-3.748 9.195h-2.561V8.29c0-1.309-.55-1.976-1.67-1.976-1.23 0-1.846.79-1.846 2.35v3.403h-2.546V8.663c0-1.56-.617-2.35-1.848-2.35-1.112 0-1.668.668-1.67 1.977v6.218H4.822V8.102c0-1.31.337-2.35 1.011-3.12.696-.77 1.608-1.164 2.74-1.164 1.311 0 2.302.5 2.962 1.498l.638 1.06.638-1.06c.66-.999 1.65-1.498 2.96-1.498 1.13 0 2.043.395 2.74 1.164.675.77 1.012 1.81 1.012 3.12z";
+  const logoPath = new Path2D(MASTODON_PATH);
+
+  const THEMES = {
+    dark:  { card: "#191b22", text: "#f2f3f7", name: "#ffffff", muted: "#9aa1b2", line: "#2c303c", bg: ["#a9d8ff", "#4a86c9"], shadow: "rgba(0,0,0,.45)" },
+    light: { card: "#ffffff", text: "#14161c", name: "#0b0d12", muted: "#667085", line: "#e4e7ee", bg: ["#cfe6ff", "#7fa9e6"], shadow: "rgba(20,40,90,.30)" }
+  };
+
+  const BGS = [
+    ["#a9d8ff", "#4a86c9"], ["#d9c8ff", "#6a4fd6"], ["#ffd1a8", "#e8587a"],
+    ["#c8f5e0", "#2fa37a"], ["#cfd5e0", "#6b7488"], ["#2b2f3d", "#0b0d12"], ["#ffffff", "#ffffff"]
+  ];
+  let theme = "dark", post = null, avatar = null, bg = BGS[0], showStats = true;
+
+  /* ---------- helpers ---------- */
+  function parseUrl(raw) {
+    let u;
+    try { u = new URL(raw.trim()); } catch { return null; }
+    const parts = u.pathname.split("/").filter(Boolean);
+    let id = null;
+    // /@user/123456, /@user@host/123456, /users/name/statuses/123456
+    const last = parts[parts.length - 1];
+    if (/^\d+$/.test(last || "")) id = last;
+    if (!id && parts.length === 4 && parts[2] === "statuses") id = parts[3];
+    return id ? { host: u.host, id } : null;
+  }
+
+  function htmlToText(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    let out = "";
+    (function walk(node) {
+      node.childNodes.forEach((n) => {
+        if (n.nodeType === 3) { out += n.nodeValue; return; }
+        if (n.nodeType !== 1) return;
+        const tag = n.tagName.toLowerCase();
+        if (tag === "br") { out += "\n"; return; }
+        if (n.classList.contains("invisible")) return;
+        walk(n);
+        if (n.classList.contains("ellipsis")) out += "…";
+        if (tag === "p" && n.nextElementSibling) out += "\n\n";
+      });
+    })(doc.body);
+    return out.replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  const stripEmoji = (s) => s.replace(/:[a-zA-Z0-9_]+:/g, "").replace(/\s{2,}/g, " ").trim();
+
+  function ordinal(n) {
+    const v = n % 100;
+    if (v >= 11 && v <= 13) return n + "th";
+    return n + (["th", "st", "nd", "rd"][n % 10] || "th");
+  }
+  function formatDate(iso) {
+    const d = new Date(iso);
+    const month = d.toLocaleString("en-US", { month: "long" });
+    const time = d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    return `${month} ${ordinal(d.getDate())}, ${d.getFullYear()} at ${time}`;
+  }
+  function compact(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+    return String(n);
+  }
+
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function wrap(text, maxW) {
+    const lines = [];
+    text.split("\n").forEach((para) => {
+      if (!para.trim()) { lines.push(""); return; }
+      let line = "";
+      para.split(/(\s+)/).forEach((tok) => {
+        if (!tok) return;
+        const test = line + tok;
+        if (ctx.measureText(test).width <= maxW || !line.trim()) {
+          if (ctx.measureText(test).width > maxW) {
+            // break very long words
+            let chunk = line;
+            for (const ch of tok) {
+              if (ctx.measureText(chunk + ch).width > maxW) { lines.push(chunk); chunk = ""; }
+              chunk += ch;
+            }
+            line = chunk;
+          } else line = test;
+        } else {
+          lines.push(line.trimEnd());
+          line = tok.trimStart();
+        }
+      });
+      lines.push(line.trimEnd());
+    });
+    return lines;
+  }
+
+  /* ---------- drawing ---------- */
+  function fit(str, maxW) {
+    if (ctx.measureText(str).width <= maxW) return str;
+    while (str.length > 1 && ctx.measureText(str + "…").width > maxW) str = str.slice(0, -1);
+    return str + "…";
+  }
+  function limit(lines, max, maxW) {
+    if (lines.length <= max) return lines;
+    const l = lines.slice(0, max);
+    l[max - 1] = fit(l[max - 1] + "…", maxW);
+    return l;
+  }
+  function cover(img, x, y, w, h, r) {
+    ctx.save();
+    rrect(x, y, w, h, r); ctx.clip();
+    const sc = Math.max(w / img.width, h / img.height);
+    const dw = img.width * sc, dh = img.height * sc;
+    ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    ctx.restore();
+  }
+  function mediaCells(n, x, y, w, h) {
+    const g = 12, cw = (w - g) / 2, ch = (h - g) / 2;
+    if (n === 1) return [[x, y, w, h]];
+    if (n === 2) return [[x, y, cw, h], [x + cw + g, y, cw, h]];
+    if (n === 3) return [[x, y, cw, h], [x + cw + g, y, cw, ch], [x + cw + g, y + ch + g, cw, ch]];
+    return [[x, y, cw, ch], [x + cw + g, y, cw, ch], [x, y + ch + g, cw, ch], [x + cw + g, y + ch + g, cw, ch]];
+  }
+
+  function drawLinkCard(x, y, w, h, T) {
+    const c = post.card, r = 26;
+    let imgW = 0;
+    if (c.img) {
+      imgW = Math.min(h * 1.05, w * 0.32);
+      ctx.save(); rrect(x, y, w, h, r); ctx.clip();
+      cover(c.img, x + w - imgW, y, imgW, h, 0);
+      ctx.restore();
+    }
+    ctx.strokeStyle = T.line; ctx.lineWidth = 2;
+    rrect(x + 1, y + 1, w - 2, h - 2, r); ctx.stroke();
+
+    const tx = x + 28, tw = w - 28 - (imgW ? imgW + 24 : 28);
+    let ty = y + 22;
+    ctx.fillStyle = T.muted; ctx.font = `400 22px ${FONT}`;
+    ctx.fillText(fit([c.provider, c.date].filter(Boolean).join("  •  "), tw), tx, ty + 18);
+    ty += 34;
+    ctx.fillStyle = T.name; ctx.font = `700 28px ${FONT}`;
+    limit(wrap(c.title, tw), 2, tw).forEach((l) => { ctx.fillText(l, tx, ty + 26); ty += 34; });
+    const dl = Math.floor((y + h - 18 - ty) / 30);
+    if (dl > 0 && c.description) {
+      ctx.fillStyle = T.muted; ctx.font = `400 24px ${FONT}`;
+      limit(wrap(c.description, tw), Math.min(dl, 2), tw).forEach((l) => { ctx.fillText(l, tx, ty + 22); ty += 30; });
+    }
+  }
+
+  function draw() {
+    const T = THEMES[theme];
+    ctx.clearRect(0, 0, S, S);
+    const g = ctx.createLinearGradient(0, 0, S, S);
+    g.addColorStop(0, bg[0]); g.addColorStop(1, bg[1]);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+    if (!post) return;
+
+    const cardX = 90, cardW = S - 180, pad = 56, innerW = cardW - pad * 2;
+    const headH = 96, footH = showStats ? 112 : 64, maxCardH = S - 140;
+    const tgap = 36, egap = 28, fgap = 36;
+    const media = post.media, hasMedia = media.length > 0;
+    const card = hasMedia ? null : post.card;
+    const hasExtra = hasMedia || !!card;
+    const textOn = post.text.length > 0;
+
+    let wantH = 0, minH = 0;
+    if (hasMedia) {
+      if (media.length === 1) wantH = Math.max(240, Math.min(620, innerW / (media[0].aspect || 1.5)));
+      else wantH = media.length === 2 ? 380 : 560;
+      minH = 220;
+    } else if (card) { wantH = 230; minH = 170; }
+
+    const base = pad * 2 + headH + fgap + footH;
+    let size = hasExtra ? 42 : 50, lines = [], lh = 0, extraH = wantH;
+    for (; size >= 22; size -= 2) {
+      ctx.font = `400 ${size}px ${FONT}`;
+      lines = textOn ? wrap(post.text, innerW) : [];
+      lh = Math.round(size * 1.38);
+      const textBlock = textOn ? tgap + lines.length * lh : 0;
+      if (hasExtra) {
+        extraH = Math.min(wantH, maxCardH - base - textBlock - egap);
+        if (extraH >= minH) break;
+      } else if (base + textBlock <= maxCardH) break;
+    }
+    if (size < 22) { // too much content: truncate the text
+      size = 22; ctx.font = `400 ${size}px ${FONT}`; lh = Math.round(size * 1.38);
+      lines = textOn ? wrap(post.text, innerW) : [];
+      extraH = hasExtra ? minH : 0;
+      const room = maxCardH - base - (hasExtra ? egap + extraH : 0) - (textOn ? tgap : 0);
+      lines = limit(lines, Math.max(1, Math.floor(room / lh)), innerW);
+    }
+    const textBlock = textOn ? tgap + lines.length * lh : 0;
+    let cardH = base + textBlock + (hasExtra ? egap + extraH : 0);
+    cardH = Math.max(Math.min(cardH, maxCardH), 520);
+    const cardY = Math.round((S - cardH) / 2);
+
+    // card
+    ctx.save();
+    ctx.shadowColor = T.shadow; ctx.shadowBlur = 60; ctx.shadowOffsetY = 24;
+    rrect(cardX, cardY, cardW, cardH, 44);
+    ctx.fillStyle = T.card; ctx.fill();
+    ctx.restore();
+
+    // avatar
+    const ax = cardX + pad, ay = cardY + pad, ar = 40;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(ax + ar, ay + ar, ar, 0, Math.PI * 2); ctx.clip();
+    if (avatar) ctx.drawImage(avatar, ax, ay, ar * 2, ar * 2);
+    else {
+      ctx.fillStyle = "#6364ff"; ctx.fillRect(ax, ay, ar * 2, ar * 2);
+      ctx.fillStyle = "#fff"; ctx.font = `700 40px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText((post.name[0] || "?").toUpperCase(), ax + ar, ay + ar + 2);
+    }
+    ctx.restore();
+
+    // name + handle
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    const tx = ax + ar * 2 + 24, maxNameW = cardX + cardW - pad - 80 - tx;
+    ctx.fillStyle = T.name; ctx.font = `700 34px ${FONT}`;
+    ctx.fillText(fit(post.name, maxNameW), tx, ay + 38);
+    ctx.fillStyle = T.muted; ctx.font = `400 28px ${FONT}`;
+    ctx.fillText(fit(post.handle, maxNameW), tx, ay + 76);
+
+    // logo
+    const ls = 64 / 24;
+    ctx.save();
+    ctx.translate(cardX + cardW - pad - 64, ay + 8);
+    ctx.scale(ls, ls);
+    ctx.fillStyle = "#6364ff"; ctx.fill(logoPath);
+    ctx.restore();
+
+    // text
+    ctx.fillStyle = T.text; ctx.font = `400 ${size}px ${FONT}`;
+    let y = ay + headH + tgap + size;
+    lines.forEach((l) => { ctx.fillText(l, ax, y); y += lh; });
+
+    // images or link preview
+    const extraY = ay + headH + (textOn ? tgap + lines.length * lh : 0) + egap;
+    if (hasMedia) {
+      mediaCells(media.length, ax, extraY, innerW, extraH).forEach((c, i) => {
+        const m = media[i];
+        if (m.img) cover(m.img, c[0], c[1], c[2], c[3], 24);
+        else { ctx.save(); rrect(c[0], c[1], c[2], c[3], 24); ctx.fillStyle = T.line; ctx.fill(); ctx.restore(); }
+      });
+    } else if (card) drawLinkCard(ax, extraY, innerW, extraH, T);
+
+    // footer
+    const fy = cardY + cardH - pad;
+    const lineY = fy - footH + 6;
+    ctx.strokeStyle = T.line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ax, lineY); ctx.lineTo(ax + innerW, lineY); ctx.stroke();
+    ctx.fillStyle = T.muted; ctx.font = `400 26px ${FONT}`;
+    ctx.fillText(post.date, ax, lineY + 46);
+    if (showStats) {
+      const n = (v, one, many) => `${compact(v)} ${v === 1 ? one : many}`;
+      const stats = [n(post.replies, "reply", "replies"), n(post.quotes, "quote", "quotes"),
+                     n(post.boosts, "boost", "boosts"), n(post.favs, "like", "likes")].join("   •   ");
+      ctx.font = `500 24px ${FONT}`;
+      ctx.fillText(fit(stats, innerW), ax, lineY + 92);
+    }
+  }
+
+  /* ---------- data ---------- */
+  async function loadImg(url) {
+    if (!url) return null;
+    try {
+      const r = await fetch(url, { mode: "cors" });
+      if (!r.ok) throw 0;
+      return await createImageBitmap(await r.blob());
+    } catch { return null; }
+  }
+
+  async function create() {
+    const msg = $("msg"), btn = $("go");
+    msg.textContent = "";
+    const p = parseUrl($("url").value);
+    if (!p) { msg.textContent = "That doesn’t look like a Mastodon post link. Use one like https://mastodon.social/@user/1123456789."; return; }
+    btn.disabled = true; btn.textContent = "Loading…";
+    try {
+      const r = await fetch(`https://${p.host}/api/v1/statuses/${p.id}`);
+      if (!r.ok) throw new Error(r.status === 404 ? "Post not found, or it isn’t public." : `The server replied with ${r.status}.`);
+      let s = await r.json();
+      if (s.reblog) s = s.reblog;
+      const acct = s.account;
+      const host = (acct.url ? new URL(acct.url).host : p.host);
+
+      const atts = (s.media_attachments || []).filter((m) => ["image", "gifv", "video"].includes(m.type)).slice(0, 4);
+      const [av, media, cardImg] = await Promise.all([
+        loadImg(acct.avatar_static || acct.avatar),
+        Promise.all(atts.map(async (m) => {
+          const img = m.type === "image"
+            ? (await loadImg(m.url)) || (await loadImg(m.preview_url))
+            : await loadImg(m.preview_url);
+          const o = m.meta && m.meta.original;
+          return { img, aspect: (o && o.aspect) || (img ? img.width / img.height : 1.5) };
+        })),
+        (s.card && s.card.image) ? loadImg(s.card.image) : null
+      ]);
+
+      let card = null;
+      if (s.card && s.card.title) {
+        let provider = s.card.provider_name;
+        if (!provider) { try { provider = new URL(s.card.url).host.replace(/^www\./, ""); } catch { provider = ""; } }
+        card = {
+          title: s.card.title, description: s.card.description || "", provider,
+          date: s.card.published_at ? new Date(s.card.published_at).toLocaleString("en-US", { month: "short", day: "numeric" }) : "",
+          img: cardImg
+        };
+      }
+
+      let text = stripEmoji(htmlToText(s.content));
+      if (!text) text = s.spoiler_text ? stripEmoji(s.spoiler_text) : ((media.length || card) ? "" : "(No text in this post)");
+
+      post = {
+        name: stripEmoji(acct.display_name) || acct.username,
+        handle: "@" + (acct.acct.includes("@") ? acct.acct : acct.acct + "@" + host),
+        text, media, card,
+        date: formatDate(s.created_at),
+        replies: s.replies_count || 0, quotes: s.quotes_count || 0, boosts: s.reblogs_count || 0, favs: s.favourites_count || 0
+      };
+      avatar = av;
+      $("stage").style.display = "block";
+      draw();
+      bumpCount();
+    } catch (e) {
+      msg.textContent = /failed to fetch|networkerror|load failed/i.test(String(e && e.message))
+        ? `Couldn’t load data from ${p.host}. If you opened this inside Claude’s preview, download the file and open it directly in your browser (Chrome, Safari, Firefox). Otherwise this server may block outside apps from reading posts.`
+        : e.message;
+    } finally {
+      btn.disabled = false; btn.textContent = "Create";
+    }
+  }
+
+  /* ---------- events ---------- */
+  $("go").addEventListener("click", create);
+  $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") create(); });
+  function setTheme(t) {
+    theme = t;
+    $("t-dark").setAttribute("aria-pressed", t === "dark");
+    $("t-light").setAttribute("aria-pressed", t === "light");
+    draw();
+  }
+  $("t-dark").addEventListener("click", () => setTheme("dark"));
+  $("t-light").addEventListener("click", () => setTheme("light"));
+  $("download").addEventListener("click", () => {
+    cv.toBlob((b) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(b);
+      a.download = `mastodon-post-${Date.now()}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }, "image/png");
+  });
+
+  // stats toggle
+  $("stats").addEventListener("change", (e) => { showStats = e.target.checked; draw(); });
+
+  // background swatches
+  const sw = $("swatches");
+  function markSwatch(i) {
+    [...sw.children].forEach((b, k) => b.setAttribute("aria-pressed", k === i));
+  }
+  BGS.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "sw"; b.type = "button";
+    b.setAttribute("aria-label", "Background " + (i + 1));
+    b.style.background = `linear-gradient(135deg, ${c[0]}, ${c[1]})`;
+    b.setAttribute("aria-pressed", i === 0);
+    b.addEventListener("click", () => { bg = c; markSwatch(i); draw(); });
+    sw.appendChild(b);
+  });
+  $("custom").addEventListener("input", (e) => { bg = [e.target.value, e.target.value]; markSwatch(-1); draw(); });
+
+  // global counter (third-party counter service; hidden if unreachable)
+  const COUNTER = "https://abacus.jasoncameron.dev";
+  const NS = "mastoframe-app", KEY = "images-created";
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fmtN = (n) => Number(n).toLocaleString("en-US");
+  let current = null;
+  function showCount(n, animate) {
+    const box = $("count"), num = $("cnum");
+    box.hidden = false;
+    const from = current == null ? n : Math.min(current, n);
+    current = n;
+    if (!animate || reduceMotion) { num.textContent = fmtN(n); return; }
+    box.classList.remove("pop"); void box.offsetWidth; box.classList.add("pop");
+    const t0 = performance.now(), dur = 800;
+    (function tick(t) {
+      const k = Math.min(1, (t - t0) / dur);
+      num.textContent = fmtN(Math.round(from + (n - from) * (1 - Math.pow(1 - k, 3))));
+      if (k < 1) requestAnimationFrame(tick);
+    })(t0);
+  }
+  async function loadCount() {
+    try {
+      const r = await fetch(`${COUNTER}/get/${NS}/${KEY}`);
+      if (r.status === 404) return showCount(0, false);
+      if (!r.ok) throw 0;
+      showCount((await r.json()).value, false);
+    } catch { /* counter stays hidden */ }
+  }
+  async function bumpCount() {
+    try {
+      const r = await fetch(`${COUNTER}/hit/${NS}/${KEY}`);
+      if (r.ok) showCount((await r.json()).value, true);
+    } catch {}
+  }
+  loadCount();
+
+  draw();
+})();
+</script>
+</body>
+</html>
