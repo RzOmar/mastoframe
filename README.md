@@ -56,7 +56,7 @@ Visit the [GitHub repository](https://github.com/RzOmar/mastoframe) to get invol
 
 If you find MastoFrame useful, consider supporting its development.
 
-[Buy Me a Coffee](YOUR_BUYMEACOFFEE_LINK)
+[Buy Me a Coffee](https://buymeacoffee.com/rzomar)
 
 ---
 
